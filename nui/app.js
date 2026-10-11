@@ -251,11 +251,43 @@ function populateRewardTables() {
   select.value = enabled || '';
 }
 
+function isRandomLocationEnabled() {
+  return getElement('random-location').checked === true;
+}
+
+function updateRandomLocationVisibility() {
+  const random = isRandomLocationEnabled();
+  const location = getElement('location');
+  const coords = getElement('coords');
+  const useCurrent = getElement('use-current-coords');
+  const radius = getElement('radius');
+  const heightTolerance = getElement('height-tolerance');
+  const rewardEnabled = getElement('reward-enabled');
+  const marker = getElement('event-type').value === 'marcador';
+  location.disabled = random;
+  coords.disabled = random;
+  useCurrent.disabled = random;
+  radius.disabled = random;
+  heightTolerance.disabled = random;
+  location.required = !random;
+  coords.required = !random;
+  rewardEnabled.disabled = marker;
+  if (marker) {
+    rewardEnabled.checked = false;
+  }
+  if (random) {
+    rewardNpcCoords = null;
+    renderRewardNpcSummary();
+  }
+  updateRewardVisibility();
+}
+
 function updateRewardVisibility() {
+  const random = isRandomLocationEnabled();
   const enabled = getElement('event-type').value !== 'marcador' && getElement('reward-enabled').checked;
   getElement('reward-table').disabled = !enabled;
-  getElement('reward-npc-wrapper').hidden = !enabled;
-  getElement('place-reward-npc').disabled = !enabled || npcPlacementRequestPending;
+  getElement('reward-npc-wrapper').hidden = !enabled || random;
+  getElement('place-reward-npc').disabled = !enabled || random || npcPlacementRequestPending;
 }
 
 function getSelectedBlipConfig() {
@@ -276,7 +308,7 @@ function applyEventTypeDefaults() {
   if (isMarker) {
     rewardEnabled.checked = false;
   }
-  updateRewardVisibility();
+  updateRandomLocationVisibility();
 }
 
 /* ============================================================
@@ -384,6 +416,7 @@ function getEventFormData() {
   const status = getElement('status').value;
   const now = Math.floor(Date.now() / 1000);
   const scheduledDate = parseScheduledDate(getElement('scheduled-date').value, getElement('scheduled-hour').value);
+  const randomLocation = isRandomLocationEnabled();
   const rewardEnabled = getElement('event-type').value !== 'marcador' && getElement('reward-enabled').checked;
 
   return {
@@ -391,10 +424,11 @@ function getEventFormData() {
     description: getElement('description').value,
     event_type: getElement('event-type').value,
     blip_sprite: getElement('blip-sprite-id').value || getElement('blip-sprite').value,
-    location: getElement('location').value,
-    coords: parseVector3(getElement('coords').value),
+    random_location: randomLocation,
+    location: randomLocation ? '' : getElement('location').value,
+    coords: randomLocation ? null : parseVector3(getElement('coords').value),
     reward_enabled: rewardEnabled,
-    ...(rewardEnabled ? { npc_coords: rewardNpcCoords ? { ...rewardNpcCoords } : null } : {}),
+    ...(rewardEnabled && !randomLocation ? { npc_coords: rewardNpcCoords ? { ...rewardNpcCoords } : null } : {}),
     reward_mode: 'table',
     reward_table: getElement('reward-table').value,
     radius: getElement('radius').value,
@@ -408,8 +442,9 @@ function getEventFormData() {
 
 function submitEventForm(event) {
   event.preventDefault();
+  const randomLocation = isRandomLocationEnabled();
 
-  if (!parseVector3(getElement('coords').value)) {
+  if (!randomLocation && !parseVector3(getElement('coords').value)) {
     showToast('Informe um vector3 valido para o encontro.');
     return;
   }
@@ -432,7 +467,7 @@ function submitEventForm(event) {
       showToast('Escolha uma categoria de performance disponível: carro ou moto.');
       return;
     }
-    if (!rewardNpcCoords) {
+    if (!randomLocation && !rewardNpcCoords) {
       showToast('Posicione e confirme o NPC mecânico para retirar a premiação deste encontro.');
       return;
     }
@@ -459,7 +494,7 @@ function renderRewardNpcSummary() {
 }
 
 async function placeRewardNpc() {
-  if (npcPlacementActive || npcPlacementRequestPending || getElement('event-type').value === 'marcador' || !getElement('reward-enabled').checked) return;
+  if (npcPlacementActive || npcPlacementRequestPending || isRandomLocationEnabled() || getElement('event-type').value === 'marcador' || !getElement('reward-enabled').checked) return;
   const eventCoords = parseVector3(getElement('coords').value);
   if (!eventCoords) {
     showToast('Informe uma posição válida para o encontro antes de posicionar o NPC.');
@@ -531,6 +566,7 @@ function recreateEvent(id) {
   const event = adminEvents.find((entry) => Number(entry.id) === Number(id));
   if (!event || !['blocked', 'cancelled', 'interrupted'].includes(event.status)) return;
   getElement('event-form').reset();
+  getElement('random-location').checked = Number(event.random_location) === 1 || event.random_location === true;
   getElement('event-type').value = event.event_type === 'marcador' ? 'marcador' : 'encontro';
   applyEventTypeDefaults();
   getElement('title').value = event.title || '';
@@ -548,7 +584,7 @@ function recreateEvent(id) {
   rewardNpcCoords = normalizeNpcCoords(event.npc_coords || { x: event.npc_x, y: event.npc_y, z: event.npc_z, w: event.npc_w });
   renderRewardNpcSummary();
   getElement('status').value = 'active';
-  updateRewardVisibility();
+  updateRandomLocationVisibility();
   updateScheduledTimeVisibility();
   openAdminTab('create');
   showToast('Revise a categoria e o início. A recriação gera um novo encontro com presença zerada.');
@@ -828,6 +864,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
 getElement('event-form').addEventListener('submit', submitEventForm);
 getElement('event-type').addEventListener('change', applyEventTypeDefaults);
 getElement('blip-sprite').addEventListener('change', syncBlipSpriteInput);
+getElement('random-location').addEventListener('change', updateRandomLocationVisibility);
 getElement('reward-enabled').addEventListener('change', updateRewardVisibility);
 getElement('status').addEventListener('change', updateScheduledTimeVisibility);
 getElement('use-current-coords').addEventListener('click', useCurrentCoords);
@@ -851,6 +888,8 @@ window.addEventListener('message', (event) => {
     npcPlacementActive = false;
     npcPlacementRequestPending = false;
     rewardNpcCoords = null;
+    getElement('random-location').checked = false;
+    updateRandomLocationVisibility();
     renderRewardNpcSummary();
     getElement('npc-placement').hidden = true;
     currentView = null;

@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS `encontros` (
   `start_time` BIGINT NOT NULL,
   `duration` INT NOT NULL DEFAULT 60,
   `recurring` TINYINT(1) NOT NULL DEFAULT 0,
+  `random_location` TINYINT(1) NOT NULL DEFAULT 0,
+  `location_key` VARCHAR(100) NULL,
   `status` VARCHAR(20) NOT NULL DEFAULT 'scheduled',
   `policy_version` INT NOT NULL DEFAULT 1,
   `started_at` BIGINT NULL,
