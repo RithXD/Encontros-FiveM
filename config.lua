@@ -8,6 +8,22 @@ Config.EventHeightTolerance = 15.0
 Config.BlipSpriteIdMin = 1
 Config.BlipSpriteIdMax = 1000
 
+-- Exige que o jogador chegue ao encontro com um carro proprio para contar presenca/premiacao.
+-- ownership usa a tabela padrao do QBCore. Ajuste os nomes se sua garagem usar outro esquema.
+Config.AttendanceVehicle = {
+    required = true,
+    driverOnly = false,
+    types = {
+        automobile = true,
+    },
+    ownership = {
+        required = true,
+        table = 'player_vehicles',
+        ownerColumn = 'citizenid',
+        plateColumn = 'plate',
+    },
+}
+
 -- Interface independente do comando /encontro.
 -- Para usar outras imagens, coloque os arquivos na pasta nui e adicione no fxmanifest.lua.
 Config.PublicUi = {

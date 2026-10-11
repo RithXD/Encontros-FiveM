@@ -1,6 +1,6 @@
 local QBCore = exports['qb-core']:GetCoreObject()
 local Policy = EncounterRewardPolicy
-local ActiveEvents, Attendance, EventTimers, EventLocks, ClaimLocks, Sessions = {}, {}, {}, {}, {}, {}
+local ActiveEvents, Attendance, EventTimers, EventLocks, ClaimLocks, Sessions, VehicleArrivals = {}, {}, {}, {}, {}, {}, {}
 local PendingClosures = {}
 local Ready, SessionSequence, TokenSequence = false, 0, 0
 local scheduleEventStart, scheduleEventFinish, finishEvent
@@ -111,6 +111,48 @@ end
 local function hasNpcPosition(event)
     return event and (event.npc_x ~= nil or event.npc_y ~= nil or event.npc_z ~= nil) or false
 end
+local function listAllows(list, value)
+    return type(list) == 'table' and value ~= nil and (list[value] == true or list[tostring(value)] == true)
+end
+local function attendanceVehicleRequired()
+    return type(Config.AttendanceVehicle) == 'table' and Config.AttendanceVehicle.required == true
+end
+local function normalizedPlate(value)
+    local plate = tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', ''):upper()
+    return plate ~= '' and plate or nil
+end
+local function sqlIdentifier(value, fallback)
+    local identifier = tostring(value or fallback or '')
+    return identifier:match('^[%w_]+$') and identifier or fallback
+end
+local function vehicleOwnedBy(citizenid, plate)
+    local ownership = Config.AttendanceVehicle and Config.AttendanceVehicle.ownership or {}
+    if type(ownership) ~= 'table' or ownership.required == false then return true end
+    if not citizenid or not plate then return false end
+    local tableName = sqlIdentifier(ownership.table, 'player_vehicles')
+    local ownerColumn = sqlIdentifier(ownership.ownerColumn, 'citizenid')
+    local plateColumn = sqlIdentifier(ownership.plateColumn, 'plate')
+    local row = MySQL.single.await(('SELECT 1 AS owned FROM %s WHERE %s = ? AND UPPER(TRIM(%s)) = ? LIMIT 1')
+        :format(tableName, ownerColumn, plateColumn), { citizenid, plate })
+    return row ~= nil
+end
+local function allowedAttendanceVehicle(ped, citizenid)
+    if not attendanceVehicleRequired() then return true end
+    if type(GetVehiclePedIsIn) ~= 'function' then return false end
+    local vehicle = GetVehiclePedIsIn(ped, false)
+    if not vehicle or vehicle == 0 then return false end
+    local settings = Config.AttendanceVehicle or {}
+    if settings.driverOnly == true then
+        if type(GetPedInVehicleSeat) ~= 'function' or GetPedInVehicleSeat(vehicle, -1) ~= ped then return false end
+    end
+    if type(settings.types) == 'table' then
+        if type(GetVehicleType) ~= 'function' or not listAllows(settings.types, GetVehicleType(vehicle)) then return false end
+    elseif type(settings.classes) == 'table' then
+        if type(GetVehicleClass) ~= 'function' or not listAllows(settings.classes, GetVehicleClass(vehicle)) then return false end
+    end
+    if type(GetVehicleNumberPlateText) ~= 'function' then return false end
+    return vehicleOwnedBy(citizenid, normalizedPlate(GetVehicleNumberPlateText(vehicle)))
+end
 local function publicEvent(event)
     return {
         id = event.id, title = event.title, description = event.description or '', location = event.location,
@@ -149,15 +191,37 @@ local function lockedEvent(id, action)
     end
     return result, reason
 end
-local function insideEvent(event, playerId)
+local function insideEventArea(event, playerId)
     if GetPlayerRoutingBucket(playerId) ~= (tonumber(event.routing_bucket) or 0) then return false end
     local ped = GetPlayerPed(playerId)
     if not ped or ped == 0 then return false end
     local coords = GetEntityCoords(ped)
     if not coords then return false end
     local dx, dy = coords.x - event.coords_x, coords.y - event.coords_y
-    return dx * dx + dy * dy <= (event.radius or Config.EventAreaRadius) ^ 2
+    local inside = dx * dx + dy * dy <= (event.radius or Config.EventAreaRadius) ^ 2
         and math.abs(coords.z - event.coords_z) <= (event.height_tolerance or Config.EventHeightTolerance)
+    return inside, ped
+end
+local function insideEvent(event, playerId, citizenid)
+    local inside, ped = insideEventArea(event, playerId)
+    if not inside then
+        if event and event.id and citizenid and VehicleArrivals[event.id] then VehicleArrivals[event.id][citizenid] = nil end
+        return false
+    end
+    if not attendanceVehicleRequired() then return true end
+    local eventId = event and event.id
+    if not eventId then return allowedAttendanceVehicle(ped, citizenid) end
+    local arrivals = VehicleArrivals[eventId]
+    if not arrivals then
+        arrivals = {}
+        VehicleArrivals[eventId] = arrivals
+    end
+    if citizenid and arrivals[citizenid] then return true end
+    if allowedAttendanceVehicle(ped, citizenid) then
+        if citizenid then arrivals[citizenid] = true end
+        return true
+    end
+    return false
 end
 local function eventNpcLifetime()
     return math.max(0, math.floor(finite(Config.EventRewardNpc and Config.EventRewardNpc.afterFinishSeconds) or 600))
@@ -191,7 +255,7 @@ local function presentPlayers(event)
     for _, value in ipairs(GetPlayers()) do
         local playerId = tonumber(value)
         local citizenid = getCitizenId(playerId)
-        if citizenid and insideEvent(event, playerId) then
+        if citizenid and insideEvent(event, playerId, citizenid) then
             if not Sessions[playerId] or Sessions[playerId].citizenid ~= citizenid then
                 SessionSequence = SessionSequence + 1
                 Sessions[playerId] = { citizenid = citizenid, id = SessionSequence }
@@ -216,6 +280,7 @@ local function loadAttendance(event)
         state[row.citizenid] = { seconds = tonumber(row.seconds) or 0 }
     end
     Attendance[event.id] = state -- never restore an observation across resource downtime
+    VehicleArrivals[event.id] = {}
     ActiveEvents[event.id] = event
 end
 local function observe(event, now)
@@ -280,7 +345,7 @@ local function recurrenceQuery(event, closedAt, finishToken)
 end
 local function afterClosure(event, status)
     local nextEvent = MySQL.single.await('SELECT * FROM encontros WHERE recurrence_parent_id = ? LIMIT 1', { event.id })
-    ActiveEvents[event.id], Attendance[event.id] = nil, nil
+    ActiveEvents[event.id], Attendance[event.id], VehicleArrivals[event.id] = nil, nil, nil
     PendingClosures[event.id] = nil
     clearTimers(event.id)
     event.status = status
@@ -345,7 +410,7 @@ local function startEvent(candidate)
         if os.time() >= endsAt(event) then
             return closeWithoutAward(event, 'interrupted', 'Banco indisponivel durante a ativacao. Recrie o evento.', true)
         end
-        Attendance[event.id], ActiveEvents[event.id] = {}, event
+        Attendance[event.id], VehicleArrivals[event.id], ActiveEvents[event.id] = {}, {}, event
         Attendance[event.id] = observe(event, os.time())
         TriggerClientEvent('encontros:client:started', -1, publicEvent(event))
         TriggerClientEvent('encontros:client:refreshClaimNpcs', -1)
@@ -568,6 +633,10 @@ end)
 local function forgetSession(playerId)
     playerId = tonumber(playerId)
     if not playerId then return end
+    local session = Sessions[playerId]
+    if session and session.citizenid then
+        for _, arrivals in pairs(VehicleArrivals) do arrivals[session.citizenid] = nil end
+    end
     Sessions[playerId] = nil
     EncounterAttendance.disconnect(Attendance, playerId)
 end
@@ -629,7 +698,7 @@ QBCore.Functions.CreateCallback('encontros:server:getMyAttendance', function(pla
             local record = Attendance[id] and Attendance[id][citizenid]
             result[tostring(id)] = { seconds = record and record.seconds or 0,
                 current_required_seconds = Policy.minimumSeconds(event.started_at, math.min(now, endsAt(event))),
-                planned_required_seconds = Policy.minimumSeconds(event.started_at, endsAt(event)), inside = insideEvent(event, playerId) }
+                planned_required_seconds = Policy.minimumSeconds(event.started_at, endsAt(event)), inside = insideEvent(event, playerId, citizenid) }
         end
     end
     cb(result)

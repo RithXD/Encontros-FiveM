@@ -25,6 +25,11 @@ end
 function GetPlayerPed(id) return Players[id] and Players[id].online and id or 0 end
 function GetEntityCoords(id) return Players[id] and Players[id].coords end
 function GetPlayerRoutingBucket(id) return Players[id] and Players[id].bucket or 0 end
+function GetVehiclePedIsIn(id) return Players[id] and Players[id].vehicle or 0 end
+function GetVehicleNumberPlateText(vehicle) return Vehicles[vehicle] and Vehicles[vehicle].plate or '' end
+function GetVehicleType(vehicle) return Vehicles[vehicle] and Vehicles[vehicle].type or nil end
+function GetVehicleClass(vehicle) return Vehicles[vehicle] and Vehicles[vehicle].class or nil end
+function GetPedInVehicleSeat(vehicle, seat) return seat == -1 and Vehicles[vehicle] and Vehicles[vehicle].driver or 0 end
 function TriggerClientEvent(name, id, ...) Notifications[#Notifications + 1] = { name = name, source = id, args = {...} } end
 function RegisterNetEvent(name, callback) NetEvents[name] = callback end
 function AddEventHandler(name, callback) Handlers[name] = callback end
@@ -83,7 +88,15 @@ end
 local function singleQuery(sql, values)
     sql = normalize(sql)
     if SingleHook then local hook = SingleHook; SingleHook = nil; hook() end
-    if sql:find('encontros_reward_claims', 1, true) then
+    if sql:find('FROM player_vehicles', 1, true) then
+        local plate = tostring(values[2] or ''):gsub('^%s+', ''):gsub('%s+$', ''):upper()
+        for _, vehicle in ipairs(DB.ownedVehicles) do
+            if vehicle.citizenid == values[1] and tostring(vehicle.plate or ''):gsub('^%s+', ''):gsub('%s+$', ''):upper() == plate then
+                return { owned = 1 }
+            end
+        end
+        return nil
+    elseif sql:find('encontros_reward_claims', 1, true) then
         local claim = DB.claims[values[1]]
         return claim and claim.citizenid == values[2] and Clone(claim) or nil
     elseif sql:find('recurrence_parent_id', 1, true) then
@@ -182,7 +195,9 @@ local function insert(sql, v)
 end
 function Reset(keepDatabase)
     TestNow = 1000
-    if not keepDatabase then DB = { events = {}, attendance = {}, claims = {}, eventSequence = 0, claimSequence = 0 } end
+    if not keepDatabase then DB = { events = {}, attendance = {}, claims = {}, ownedVehicles = {}, eventSequence = 0, claimSequence = 0 } end
+    DB.ownedVehicles = DB.ownedVehicles or {}
+    Vehicles = {}
     Players = { [1] = { online = true, citizenid = 'test_character_a', coords = vector3(0, 0, 0), bucket = 0, admin = true },
         [2] = { online = true, citizenid = 'test_character_b', coords = vector3(100, 0, 0), bucket = 0, admin = false } }
     Notifications, Callbacks, NetEvents, Handlers, Commands, Timers, Threads = {}, {}, {}, {}, {}, {}, {}
