@@ -9,6 +9,7 @@ EncounterSchema = {
         reward_item VARCHAR(100) NOT NULL DEFAULT '', reward_enabled TINYINT(1) NOT NULL DEFAULT 0,
         reward_table VARCHAR(50) NOT NULL DEFAULT 'encontro', reward_custom LONGTEXT NULL,
         start_time BIGINT NOT NULL, duration INT NOT NULL DEFAULT 60, recurring TINYINT(1) NOT NULL DEFAULT 0,
+        random_location TINYINT(1) NOT NULL DEFAULT 0, location_key VARCHAR(100) NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'scheduled', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4]],
     [[CREATE TABLE IF NOT EXISTS encontros_reward_claims (
@@ -33,6 +34,8 @@ EncounterSchema = {
     "ALTER TABLE encontros ADD COLUMN IF NOT EXISTS reward_table VARCHAR(50) NOT NULL DEFAULT 'encontro'",
     "ALTER TABLE encontros ADD COLUMN IF NOT EXISTS reward_custom LONGTEXT NULL",
     "ALTER TABLE encontros ADD COLUMN IF NOT EXISTS recurring TINYINT(1) NOT NULL DEFAULT 0",
+    "ALTER TABLE encontros ADD COLUMN IF NOT EXISTS random_location TINYINT(1) NOT NULL DEFAULT 0",
+    "ALTER TABLE encontros ADD COLUMN IF NOT EXISTS location_key VARCHAR(100) NULL",
     "ALTER TABLE encontros ADD COLUMN IF NOT EXISTS policy_version INT NOT NULL DEFAULT 1",
     "ALTER TABLE encontros ADD COLUMN IF NOT EXISTS started_at BIGINT NULL",
     "ALTER TABLE encontros ADD COLUMN IF NOT EXISTS finished_at BIGINT NULL",

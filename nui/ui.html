@@ -126,7 +126,7 @@
             <div class="form-grid">
               <label>
                 Nome
-                <input id="title" maxlength="100" placeholder="Ex.: Sunset no pier" required />
+                <input id="title" maxlength="100" placeholder="Ex.: Sunset no pier" />
               </label>
 
               <label>
@@ -149,13 +149,13 @@
 
               <label>
                 Local
-                <input id="location" maxlength="100" placeholder="Ex.: Estacionamento do casino" required />
+                <input id="location" maxlength="100" placeholder="Ex.: Estacionamento do casino" />
               </label>
 
               <label class="coords-field">
                 Vector3 do inicio
                 <div class="inline-control">
-                  <input id="coords" placeholder="vector3(0.00, 0.00, 0.00)" required />
+                  <input id="coords" placeholder="vector3(0.00, 0.00, 0.00)" />
                   <button class="icon-btn compact" id="use-current-coords" type="button" title="Usar minha posicao atual" aria-label="Usar minha posicao atual">
                     <i class="fa-solid fa-location-crosshairs"></i>
                   </button>
@@ -168,6 +168,11 @@
               <label class="wide">
                 Descrição
                 <textarea id="description" maxlength="500" placeholder="Explique o que vai acontecer no encontro."></textarea>
+              </label>
+
+              <label class="check wide">
+                <input id="random-location" type="checkbox" />
+                Sortear local automaticamente pelo Config.Locations
               </label>
 
               <label class="check">

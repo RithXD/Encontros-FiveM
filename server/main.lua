@@ -38,17 +38,73 @@ local function getEventType(value)
     local key = tostring(value or '')
     return Config.Blips[key] and key or (Config.Blips.encontro and 'encontro' or 'social')
 end
+local function npcCoords(x, y, z, w)
+    x, y, z, w = finite(x), finite(y), finite(z), finite(w)
+    if not x or not y or not z or not w or math.abs(x) > 20000 or math.abs(y) > 20000 or z < -1000 or z > 10000 then return nil end
+    return { x = x, y = y, z = z, w = w % 360 }
+end
+local function sanitizeKey(value, fallback)
+    local key = tostring(value or ''):sub(1, 100)
+    return key ~= '' and key or fallback
+end
+local function coordComponent(coords, key, index)
+    if not coords then return nil end
+    local value = coords[key]
+    if value == nil and index then value = coords[index] end
+    return finite(value)
+end
+local function configuredLocations()
+    local locations = {}
+    for index, entry in ipairs(Config.Locations or {}) do
+        local coords = entry and entry.coords
+        local x, y, z = coordComponent(coords, 'x', 1), coordComponent(coords, 'y', 2), coordComponent(coords, 'z', 3)
+        local npcSource = entry and (entry.npc or entry.npc_coords or entry.rewardNpc)
+        local npc = npcSource and npcCoords(
+            coordComponent(npcSource, 'x', 1),
+            coordComponent(npcSource, 'y', 2),
+            coordComponent(npcSource, 'z', 3),
+            coordComponent(npcSource, 'w', 4) or coordComponent(npcSource, 'heading')
+        )
+        if x and y and z and npc then
+            local key = sanitizeKey(entry.key, tostring(index))
+            locations[#locations + 1] = {
+                key = key,
+                label = tostring(entry.label or key):sub(1, 100),
+                x = x, y = y, z = z,
+                radius = finite(entry.radius),
+                height_tolerance = finite(entry.heightTolerance or entry.height_tolerance),
+                npc = npc,
+            }
+        end
+    end
+    return locations
+end
+local function locationKeyForEvent(event)
+    if event and event.location_key and tostring(event.location_key) ~= '' then return tostring(event.location_key) end
+    if not event then return nil end
+    for _, location in ipairs(configuredLocations()) do
+        if location.label == event.location
+            and location.x == tonumber(event.coords_x) and location.y == tonumber(event.coords_y) and location.z == tonumber(event.coords_z) then
+            return location.key
+        end
+    end
+    return nil
+end
+local function randomLocation(excludedKey)
+    local locations, pool = configuredLocations(), {}
+    if #locations == 0 then return nil end
+    for _, location in ipairs(locations) do
+        if #locations == 1 or location.key ~= excludedKey then pool[#pool + 1] = location end
+    end
+    if #pool == 0 then pool = locations end
+    return pool[math.random(1, #pool)]
+end
 local function blipConfig(eventType) return Config.Blips[eventType] or Config.Blips.encontro or Config.Blips.social end
 local function blipSprite(value, eventType)
     return math.floor(clampNumber(value, blipConfig(eventType).sprite, Config.BlipSpriteIdMin or 1, Config.BlipSpriteIdMax or 1000))
 end
 local function eventHasReward(event) return event.event_type ~= 'marcador' and truthy(event.reward_enabled) end
 local function endsAt(event) return tonumber(event.start_time) + tonumber(event.duration) * 60 end
-local function npcCoords(x, y, z, w)
-    x, y, z, w = finite(x), finite(y), finite(z), finite(w)
-    if not x or not y or not z or not w or math.abs(x) > 20000 or math.abs(y) > 20000 or z < -1000 or z > 10000 then return nil end
-    return { x = x, y = y, z = z, w = w % 360 }
-end
 local function eventNpcCoords(event)
     return event and npcCoords(event.npc_x, event.npc_y, event.npc_z, event.npc_w) or nil
 end
@@ -65,6 +121,7 @@ local function publicEvent(event)
         radius = event.radius, height_tolerance = event.height_tolerance, start_time = event.start_time,
         started_at = event.started_at, finished_at = event.finished_at, duration = event.duration,
         status = event.status, status_reason = event.status_reason, recurring = truthy(event.recurring) and 1 or 0,
+        random_location = truthy(event.random_location) and 1 or 0, location_key = event.location_key,
         routing_bucket = event.routing_bucket, policy_version = event.policy_version,
     }
 end
@@ -195,12 +252,30 @@ local function recurrenceQuery(event, closedAt, finishToken)
     if not truthy(event.recurring) then return nil end
     local nextStart = event.start_time + 86400
     while nextStart <= closedAt do nextStart = nextStart + 86400 end
+    if truthy(event.random_location) then
+        local selected = randomLocation(locationKeyForEvent(event))
+        if selected then
+            return { query = [[INSERT IGNORE INTO encontros
+                (title, description, location, coords_x, coords_y, coords_z, radius, height_tolerance, event_type,
+                 area_message, blip_sprite, reward_enabled, reward_table, start_time, duration, recurring, status,
+                 policy_version, routing_bucket, recurrence_parent_id, npc_x, npc_y, npc_z, npc_w, random_location, location_key)
+                SELECT title, description, ?, ?, ?, ?, ?, ?, event_type, area_message, blip_sprite, reward_enabled,
+                 reward_table, ?, duration, 1, 'scheduled', ?, routing_bucket, id, ?, ?, ?, ?, 1, ?
+                FROM encontros WHERE id = ? AND finish_token = ?]], values = {
+                    selected.label, selected.x, selected.y, selected.z,
+                    clampNumber(selected.radius, event.radius or Config.EventAreaRadius, 1, 1000),
+                    clampNumber(selected.height_tolerance, event.height_tolerance or Config.EventHeightTolerance, 1, 500),
+                    nextStart, Policy.VERSION, selected.npc.x, selected.npc.y, selected.npc.z, selected.npc.w,
+                    selected.key, event.id, finishToken,
+                } }
+        end
+    end
     return { query = [[INSERT IGNORE INTO encontros
         (title, description, location, coords_x, coords_y, coords_z, radius, height_tolerance, event_type,
          area_message, blip_sprite, reward_enabled, reward_table, start_time, duration, recurring, status,
-         policy_version, routing_bucket, recurrence_parent_id, npc_x, npc_y, npc_z, npc_w)
+         policy_version, routing_bucket, recurrence_parent_id, npc_x, npc_y, npc_z, npc_w, random_location, location_key)
         SELECT title, description, location, coords_x, coords_y, coords_z, radius, height_tolerance, event_type,
-         area_message, blip_sprite, reward_enabled, reward_table, ?, duration, 1, 'scheduled', ?, routing_bucket, id, npc_x, npc_y, npc_z, npc_w
+         area_message, blip_sprite, reward_enabled, reward_table, ?, duration, 1, 'scheduled', ?, routing_bucket, id, npc_x, npc_y, npc_z, npc_w, random_location, location_key
         FROM encontros WHERE id = ? AND finish_token = ?]], values = { nextStart, Policy.VERSION, event.id, finishToken } }
 end
 local function afterClosure(event, status)
@@ -564,11 +639,21 @@ QBCore.Functions.CreateCallback('encontros:server:create', function(playerId, cb
     if not Ready then cb(false, 'Sistema de encontros indisponivel.') return end
     if not isAdmin(playerId) then cb(false, 'Sem permissao.') return end
     data = type(data) == 'table' and data or {}
+    local randomizeLocation = truthy(data.random_location)
     local title, location = tostring(data.title or ''):sub(1, 100), tostring(data.location or ''):sub(1, 100)
-    if title == '' or location == '' then cb(false, 'Informe o nome e o local do encontro.') return end
+    local selectedLocation, locationKey = nil, nil
     local coords = type(data.coords) == 'table' and data.coords or {}
     local x, y, z = finite(coords.x or data.coords_x), finite(coords.y or data.coords_y), finite(coords.z or data.coords_z)
-    if not x or not y or not z then cb(false, 'Informe um vector3 valido para o encontro.') return end
+    if randomizeLocation then
+        selectedLocation = randomLocation()
+        if not selectedLocation then cb(false, 'Nenhum local valido com NPC configurado em Config.Locations.') return end
+        if title == '' then title = 'Encontro Aleatorio' end
+        location, locationKey = selectedLocation.label, selectedLocation.key
+        x, y, z = selectedLocation.x, selectedLocation.y, selectedLocation.z
+    else
+        if title == '' or location == '' then cb(false, 'Informe o nome e o local do encontro.') return end
+        if not x or not y or not z then cb(false, 'Informe um vector3 valido para o encontro.') return end
+    end
     -- Removed controls are rejected here too, including direct network calls.
     for _, key in ipairs({ 'reward_item', 'reward_custom', 'custom_rewards', 'reward_amount', 'amount', 'rewards' }) do
         if data[key] ~= nil and data[key] ~= '' then cb(false, 'Premiacao personalizada desativada. Use carro ou moto, uma unidade.') return end
@@ -579,12 +664,14 @@ QBCore.Functions.CreateCallback('encontros:server:create', function(playerId, cb
     local eventType = getEventType(data.event_type)
     local marker = eventType == 'marcador' or blipConfig(eventType).requiresNpc == false
     local enabled = not marker and truthy(data.reward_enabled)
-    local npc
+    local npc = randomizeLocation and not marker and selectedLocation and selectedLocation.npc or nil
     if enabled then
         local valid, reason = Policy.validateCatalog(QBCore.Shared.Items, category)
         if not valid then cb(false, reason or 'Catalogo de pecas indisponivel.') return end
-        local position = type(data.npc_coords) == 'table' and data.npc_coords or {}
-        npc = npcCoords(position.x, position.y, position.z, position.w)
+        if not randomizeLocation then
+            local position = type(data.npc_coords) == 'table' and data.npc_coords or {}
+            npc = npcCoords(position.x, position.y, position.z, position.w)
+        end
         if not npc then cb(false, 'Posicione o NPC mecanico no mundo antes de criar o encontro premiado.') return end
     end
     local now, status = os.time(), data.status == 'active' and 'active' or 'scheduled'
@@ -593,19 +680,22 @@ QBCore.Functions.CreateCallback('encontros:server:create', function(playerId, cb
     local duration = math.floor(clampNumber(data.duration, 60, 1, 10080))
     local values = {
         title, tostring(data.description or ''):sub(1, 500), location, x, y, z,
-        marker and 0 or clampNumber(data.radius, blipConfig(eventType).radius or Config.EventAreaRadius, 1, 1000),
-        clampNumber(data.height_tolerance or data.heightTolerance, Config.EventHeightTolerance, 1, 500), eventType,
+        marker and 0 or (selectedLocation and clampNumber(selectedLocation.radius, blipConfig(eventType).radius or Config.EventAreaRadius, 1, 1000)
+            or clampNumber(data.radius, blipConfig(eventType).radius or Config.EventAreaRadius, 1, 1000)),
+        selectedLocation and clampNumber(selectedLocation.height_tolerance, Config.EventHeightTolerance, 1, 500)
+            or clampNumber(data.height_tolerance or data.heightTolerance, Config.EventHeightTolerance, 1, 500), eventType,
         tostring(data.area_message or ''):sub(1, 500), blipSprite(data.blip_sprite, eventType), enabled and 1 or 0,
-        category, startTime, duration, truthy(data.recurring) and 1 or 0, Policy.VERSION, GetPlayerRoutingBucket(playerId)
+        category, startTime, duration, truthy(data.recurring) and 1 or 0, Policy.VERSION, GetPlayerRoutingBucket(playerId),
+        randomizeLocation and 1 or 0, locationKey
     }
     if npc then
-        values[19], values[20], values[21], values[22] = npc.x, npc.y, npc.z, npc.w
+        values[21], values[22], values[23], values[24] = npc.x, npc.y, npc.z, npc.w
     end
     local id = MySQL.insert.await([[INSERT INTO encontros
         (title, description, location, coords_x, coords_y, coords_z, radius, height_tolerance, event_type, area_message,
          blip_sprite, reward_enabled, reward_table, start_time, duration, recurring, status, policy_version, routing_bucket,
-         npc_x, npc_y, npc_z, npc_w)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ]] ..
+         random_location, location_key, npc_x, npc_y, npc_z, npc_w)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?, ]] ..
         (npc and '?, ?, ?, ?)' or 'NULL, NULL, NULL, 0)'), values)
     if not id then cb(false, 'Nao foi possivel salvar o encontro.') return end
     local event = getEvent(id)
