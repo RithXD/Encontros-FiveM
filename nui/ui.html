@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Encontros</title>
+
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
+  </head>
+
+  <body>
+    <aside id="start-notice" class="start-notice" role="status" aria-live="polite" hidden>
+      <div class="start-notice-header">
+        <i class="fa-solid fa-calendar-check" aria-hidden="true"></i>
+        <span>Encontro iniciado</span>
+      </div>
+      <h3 id="start-notice-title"></h3>
+      <p id="start-notice-location"></p>
+      <div id="start-notice-action" class="start-notice-action">
+        <kbd id="start-notice-key">H</kbd>
+        <span id="start-notice-action-text">Marcar no mapa</span>
+      </div>
+      <div class="start-notice-progress" aria-hidden="true">
+        <div id="start-notice-progress-bar"></div>
+      </div>
+    </aside>
+
+    <aside id="npc-placement" class="npc-placement" role="status" aria-live="polite" hidden>
+      <span class="public-eyebrow">PREMIAÇÃO DO ENCONTRO</span>
+      <h3>Posicionar NPC mecânico</h3>
+      <p>Mova o mecânico até o ponto de retirada das peças.</p>
+      <div class="npc-placement-controls">
+        <div><kbd>↑ ↓ ← →</kbd><span>Mover no chão</span></div>
+        <div><kbd>+</kbd><span>Subir</span></div>
+        <div><kbd>−</kbd><span>Descer</span></div>
+        <div><kbd>Scroll</kbd><span>Rotacionar</span></div>
+        <div><kbd>Enter</kbd><span>Confirmar posição</span></div>
+        <div><kbd>Esc</kbd><span>Cancelar</span></div>
+      </div>
+      <p id="npc-placement-coords" class="npc-placement-coords"></p>
+    </aside>
+
+    <aside id="nui-toast" class="nui-toast" hidden>
+      <i class="fa-solid fa-circle-info"></i>
+      <span id="nui-toast-message"></span>
+    </aside>
+
+    <!-- Painel principal: conteúdo carregado pelo client/main.lua. -->
+    <main id="panel" class="panel" hidden>
+      <img class="brand-mascot" src="Fueltecson.png" alt="" aria-hidden="true" />
+
+      <header class="panel-header">
+        <div class="brand-heading">
+          <img class="brand-logo" src="Fueltecson_Nome.png" alt="Fueltecson" />
+          <div>
+            <span class="eyebrow">CIDADE</span>
+            <h1 id="panel-title">Encontros</h1>
+          </div>
+        </div>
+
+        <button class="icon-btn" type="button" onclick="closePanel()" aria-label="Fechar painel">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </header>
+
+      <!-- Consulta do encontro ativo (/encontro). -->
+      <section id="info-view" class="public-view" hidden>
+        <img id="public-mascot" class="public-mascot" src="Fueltecson.png" alt="" aria-hidden="true" />
+
+        <header class="public-header">
+          <button class="icon-btn public-close" type="button" onclick="closePanel()" aria-label="Fechar painel">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+          <div class="public-title-block">
+            <img id="public-logo" class="public-logo" src="Fueltecson_Nome.png" alt="Fueltecson" />
+            <div>
+              <span id="public-eyebrow" class="public-eyebrow">ENCONTROS</span>
+              <h2 id="public-title">Encontros da Cidade</h2>
+              <p id="public-subtitle">Confira os encontros ativos agora</p>
+            </div>
+          </div>
+        </header>
+
+        <div id="public-events-list" class="public-events-list"></div>
+        <div id="public-powered" class="public-powered">Powered By Fueltecson</div>
+      </section>
+
+      <section id="claims-view" class="public-view" hidden>
+        <header class="public-header">
+          <button class="icon-btn public-close" type="button" onclick="closePanel()" aria-label="Fechar painel">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+          <span class="public-eyebrow">PRÊMIOS DOS ENCONTROS</span>
+          <h2>Suas peças de performance</h2>
+          <p id="claims-pickup-help">Retire no encontro até 10 minutos após o término. Depois, procure o NPC fixo. O prazo total é de 24 horas após o sorteio.</p>
+        </header>
+        <div id="claims-list" class="claims-list" aria-live="polite"></div>
+        <div class="claims-actions">
+        <button id="claims-fixed-map" class="public-map-btn" type="button" onclick="markFixedClaimNpc()" hidden>
+          <i class="fa-solid fa-map-location-dot"></i> Marcar NPC fixo
+        </button>
+        <button class="public-map-btn" type="button" onclick="refreshClaims()">
+          <i class="fa-solid fa-rotate"></i> Atualizar prêmios
+        </button>
+        </div>
+      </section>
+
+      <!-- Administração (/encontrosadmin). -->
+      <section id="admin-view" hidden>
+        <nav class="tabs" aria-label="Navegação administrativa">
+          <button class="tab active" type="button" data-tab="events">Eventos</button>
+          <button class="tab" type="button" data-tab="create">Criar encontro</button>
+        </nav>
+
+        <section id="events-tab" class="tab-content">
+          <div id="events-list" class="events-list"></div>
+        </section>
+
+        <section id="create-tab" class="tab-content" hidden>
+          <form id="event-form">
+            <div class="form-grid">
+              <label>
+                Nome
+                <input id="title" maxlength="100" placeholder="Ex.: Sunset no pier" required />
+              </label>
+
+              <label>
+                Foco
+                <select id="event-type">
+                  <option value="encontro">Encontro</option>
+                  <option value="marcador">Marcador</option>
+                </select>
+              </label>
+
+              <label>
+                Icone no mapa
+                <select id="blip-sprite"></select>
+              </label>
+
+              <label>
+                ID do blip
+                <input id="blip-sprite-id" type="number" min="1" step="1" placeholder="Ex.: 280" />
+              </label>
+
+              <label>
+                Local
+                <input id="location" maxlength="100" placeholder="Ex.: Estacionamento do casino" required />
+              </label>
+
+              <label class="coords-field">
+                Vector3 do inicio
+                <div class="inline-control">
+                  <input id="coords" placeholder="vector3(0.00, 0.00, 0.00)" required />
+                  <button class="icon-btn compact" id="use-current-coords" type="button" title="Usar minha posicao atual" aria-label="Usar minha posicao atual">
+                    <i class="fa-solid fa-location-crosshairs"></i>
+                  </button>
+                </div>
+              </label>
+
+              <label>Raio (m) <input id="radius" type="number" min="0" max="1000" step="0.1" value="80" required /></label>
+              <label>Altura (m) <input id="height-tolerance" type="number" min="1" max="500" step="0.1" value="15" required /></label>
+
+              <label class="wide">
+                Descrição
+                <textarea id="description" maxlength="500" placeholder="Explique o que vai acontecer no encontro."></textarea>
+              </label>
+
+              <label class="check">
+                <input id="reward-enabled" type="checkbox" />
+                Habilitar premiacao
+              </label>
+
+              <label>
+                Peças de performance
+                <select id="reward-table"></select>
+              </label>
+
+              <p class="reward-rules wide">Cada participante elegível ganha uma unidade de uma das 26 peças da categoria, com chances iguais. É preciso permanecer na área por 50% do tempo realizado e estar presente no encerramento. Retirada no mecânico do encontro até 10 minutos após o término; depois, no NPC fixo. O prazo total é de 24 horas após o sorteio. Caminhões estão bloqueados.</p>
+
+              <div id="reward-npc-wrapper" class="reward-npc-field wide" hidden>
+                <label for="place-reward-npc">NPC de retirada da premiação</label>
+                <button id="place-reward-npc" class="secondary" type="button">
+                  <i class="fa-solid fa-person" aria-hidden="true"></i> Posicionar NPC mecânico
+                </button>
+                <output id="reward-npc-summary">Não posicionado</output>
+                <small>Escolha o ponto de retirada no mundo. O mecânico ficará disponível após o encerramento do encontro.</small>
+              </div>
+
+              <label>Duração (min) <input id="duration" type="number" min="1" value="60" required /></label>
+
+              <label>
+                Início
+                <select id="status">
+                  <option value="active">Iniciar agora</option>
+                  <option value="scheduled">Agendar horário</option>
+                </select>
+              </label>
+
+              <div id="scheduled-time-wrapper" class="schedule-fields wide" hidden>
+                <label for="scheduled-date">Data
+                  <input id="scheduled-date" type="text" inputmode="numeric" maxlength="10" placeholder="DD/MM/AAAA" autocomplete="off" aria-describedby="schedule-hint" disabled />
+                </label>
+                <label for="scheduled-hour">Horário (24h)
+                  <input id="scheduled-hour" type="text" inputmode="numeric" maxlength="5" placeholder="HH:MM" autocomplete="off" aria-describedby="schedule-hint" disabled />
+                </label>
+                <small id="schedule-hint" class="schedule-hint">Use dia/mês/ano e hora de 00:00 a 23:59. Horário local do seu computador.</small>
+              </div>
+
+              <label class="check wide">
+                <input id="recurring" type="checkbox" />
+                Repetir diariamente neste horário
+              </label>
+            </div>
+
+            <button class="primary" type="submit">
+              <i class="fa-solid fa-plus"></i>
+              Criar encontro
+            </button>
+          </form>
+        </section>
+
+        <footer class="admin-footer">
+          <span class="admin-powered">Powered By Fueltecson</span>
+        </footer>
+      </section>
+    </main>
+
+    <section id="confirm-dialog" class="confirm-dialog" hidden>
+      <div class="confirm-box" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="confirm-icon">
+          <i id="confirm-icon" class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <div class="confirm-content">
+          <h2 id="confirm-title">Confirmar acao</h2>
+          <p id="confirm-message"></p>
+          <div class="confirm-actions">
+            <button class="secondary" id="confirm-cancel" type="button">Cancelar</button>
+            <button class="danger confirm-danger" id="confirm-accept" type="button">Confirmar</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
