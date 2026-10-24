@@ -31,6 +31,21 @@ Players[1].bucket=2
 Sample(1035)
 TestNow=1060; Check(Invoke('finish',1,id)); Eq(Count(DB.claims),0,'same coordinates other instance ineligible')
 
+-- When enabled, attendance starts only after arriving in an owned car.
+Reset(); Boot(); Config.AttendanceVehicle = { required = true, types = { automobile = true }, ownership = { required = true } }
+ok,id=NewEvent({duration=2})
+Sample(1005); Eq(DB.attendance[id] and DB.attendance[id].test_character_a or 0,0,'arrival on foot is not counted')
+Vehicles[10] = { type = 'automobile', plate = 'OTHER1', driver = 1 }; Players[1].vehicle = 10
+Sample(1010); Eq(DB.attendance[id] and DB.attendance[id].test_character_a or 0,0,'unowned car is not counted')
+DB.ownedVehicles[#DB.ownedVehicles + 1] = { citizenid = 'test_character_a', plate = 'OWN123' }
+Vehicles[11] = { type = 'automobile', plate = ' own123 ', driver = 1 }; Players[1].vehicle = 11
+Sample(1015); Eq(DB.attendance[id] and DB.attendance[id].test_character_a or 0,0,'first owned-car observation only opens attendance')
+Players[1].vehicle = 0
+Sample(1020); Eq(DB.attendance[id].test_character_a,5,'parked owned-car arrival keeps counting while inside')
+Players[1].coords.x = 100; Sample(1025)
+Players[1].coords.x = 0; Sample(1030)
+Eq(DB.attendance[id].test_character_a,5,'returning on foot after leaving the area is not counted')
+
 -- Disconnect and same-character logout cannot bridge observed intervals.
 Reset(); Boot(); ok,id=NewEvent({duration=2})
 Sample(1005); Eq(DB.attendance[id].test_character_a,5)
