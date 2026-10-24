@@ -76,13 +76,67 @@ Config.EventBlipIcons = {
 }
 
 
--- OBS: a criacao pelo painel nao depende mais desta lista.
+-- Usado pelo modo "Sortear local automaticamente" do painel.
+-- Cada local precisa de coords (centro do encontro) e npc (mecanico de retirada).
+-- Em eventos recorrentes, o proximo dia tenta evitar a mesma key do encontro anterior.
+-- Com apenas um local valido configurado, a repeticao e inevitavel.
 Config.Locations = {    
     {
         key = 'mercadao',
         label = 'Mercadão',
         coords = vector3(2769.48, 3467.65, 55.56),
+        npc = vector4(2765.82, 3472.31, 55.67, 242.0),
         radius = 80.0,
         heightTolerance = 15.0,
     },
+    {
+        key = 'paleto towers',
+        label = 'Estacionamento Paleto Towers',
+        coords = vector3(53.23, 6333.66, 31.38),
+        npc = vector4(76.96, 6341.51, 31.53, 88.71),
+        radius = 80.0,
+        heightTolerance = 15.0,
+    },
+    {
+        key = 'pista xiquexique',
+        label = 'Pista Automotiva Xique-xique',
+        coords = vector3(1460.12, 6592.95, 14.43),
+        npc = vector4(1504.57, 6587.40, 14.43, 79.98),
+        radius = 80.0,
+        heightTolerance = 15.0,
+    },
+    {
+        key = 'cassino sandy shores',
+        label = 'Cassino Sandy Shores',
+        coords = vector3(1550.85, 3700.12, 34.47),
+        npc = vector4(1533.98, 3694.71, 34.64, 312.61),
+        radius = 60.0,
+        heightTolerance = 15.0,
+    },
+    {
+        key = 'concessionaria',
+        label = 'Concessionária',
+        coords = vector3(2363.66, 3133.08, 48.31),
+        npc = vector4(2356.56, 3101.54, 48.20, 5.05),
+        radius = 60.0,
+        heightTolerance = 15.0,
+    },
+
+    -- Exemplo para adicionar mais locais:
+    -- {
+    --     key = 'pier',
+    --     label = 'Pier',
+    --     coords = vector3(-1570.78, -1018.64, 13.02),
+    --     npc = vector4(-1565.25, -1012.40, 13.02, 140.0),
+    --     radius = 70.0,
+    --     heightTolerance = 15.0,
+    -- },
+    -- {
+    --     key = 'casino',
+    --     label = 'Estacionamento do Casino',
+    --     coords = vector3(930.16, 41.71, 81.09),
+    --     npc = vector4(924.42, 47.85, 81.10, 238.0),
+    --     radius = 90.0,
+    --     heightTolerance = 18.0,
+    -- },
 }

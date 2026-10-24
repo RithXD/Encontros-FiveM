@@ -153,13 +153,20 @@ local function insert(sql, v)
             status = 'pending', claimed = 0, drawn_at = v[4], expires_at = v[5] }
         return id
     elseif sql:find('INSERT IGNORE INTO encontros', 1, true) then
-        local parent = DB.events[v[3]]
-        if not parent or parent.finish_token ~= v[4] then return 0 end
+        local random = sql:find('SELECT title, description, %?', 1, false) ~= nil
+        local parentId, finishToken = random and v[14] or v[3], random and v[15] or v[4]
+        local parent = DB.events[parentId]
+        if not parent or parent.finish_token ~= finishToken then return 0 end
         for _, row in pairs(DB.events) do if row.recurrence_parent_id == parent.id then return 0 end end
         local row = Clone(parent)
         DB.eventSequence = DB.eventSequence + 1
-        row.id, row.start_time, row.policy_version, row.recurrence_parent_id = DB.eventSequence, v[1], v[2], parent.id
+        row.id, row.start_time, row.policy_version, row.recurrence_parent_id = DB.eventSequence, random and v[7] or v[1], random and v[8] or v[2], parent.id
         row.status, row.started_at, row.finished_at, row.finish_token = 'scheduled', nil, nil, nil
+        if random then
+            row.location, row.coords_x, row.coords_y, row.coords_z = v[1], v[2], v[3], v[4]
+            row.radius, row.height_tolerance, row.random_location, row.location_key = v[5], v[6], 1, v[13]
+            row.npc_x, row.npc_y, row.npc_z, row.npc_w = v[9], v[10], v[11], v[12]
+        end
         DB.events[row.id] = row
         return row.id
     elseif sql:find('INSERT INTO encontros', 1, true) then
@@ -168,7 +175,7 @@ local function insert(sql, v)
         DB.events[id] = { id = id, title = v[1], description = v[2], location = v[3], coords_x = v[4], coords_y = v[5], coords_z = v[6],
             radius = v[7], height_tolerance = v[8], event_type = v[9], area_message = v[10], blip_sprite = v[11], reward_enabled = v[12],
             reward_table = v[13], start_time = v[14], duration = v[15], recurring = v[16], status = 'scheduled', policy_version = v[17], routing_bucket = v[18],
-            npc_x = v[19], npc_y = v[20], npc_z = v[21], npc_w = v[22] or 0 }
+            random_location = v[19], location_key = v[20], npc_x = v[21], npc_y = v[22], npc_z = v[23], npc_w = v[24] or 0 }
         return id
     end
     error('Unhandled insert: ' .. sql)
@@ -182,7 +189,11 @@ function Reset(keepDatabase)
     AutoRunThreads = false
     Config = { AdminGroups = {'admin'}, AdminCommand = 'encontrosadmin', EventCommand = 'encontro', EventAreaRadius = 50,
         EventHeightTolerance = 15, Blips = { encontro = { sprite = 280, radius = 50 }, marcador = { sprite = 280, radius = 0, requiresNpc = false } },
-        EventRewardNpc = { afterFinishSeconds = 600 }, RewardClaimNpc = { coords = vector4(200, 0, 0, 0), routingBucket = 0 } }
+        EventRewardNpc = { afterFinishSeconds = 600 }, RewardClaimNpc = { coords = vector4(200, 0, 0, 0), routingBucket = 0 },
+        Locations = {
+            { key = 'praca', label = 'Praca', coords = vector3(0, 0, 0), npc = vector4(10, 0, 0, 90), radius = 50, heightTolerance = 15 },
+            { key = 'pier', label = 'Pier', coords = vector3(300, 0, 0), npc = vector4(310, 0, 0, 180), radius = 70, heightTolerance = 20 },
+        } }
     local core = { Shared = { Items = {} }, Functions = {} }
     for _, key in ipairs({'pecas_carro', 'pecas_moto'}) do
         for _, reward in ipairs(EncounterRewardPolicy.catalog(key).rewards) do core.Shared.Items[reward.item] = { name = reward.item, label = reward.item, image = reward.item .. '.png' } end
