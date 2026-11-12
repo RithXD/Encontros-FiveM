@@ -4,6 +4,25 @@ local Policy = EncounterRewardPolicy
 Policy.VERSION = 2
 Policy.SAMPLE_SECONDS = 5
 Policy.CLAIM_TTL = 86400
+Policy.MINIMUM_ATTENDANCE_PERCENT = 60
+
+function Policy.moneyLimits()
+    local settings = Config and type(Config.MoneyReward) == 'table' and Config.MoneyReward or {}
+    local function integer(value, fallback)
+        local n = tonumber(value)
+        return n and n == n and n >= 1 and n <= 2147483647 and math.floor(n) or fallback
+    end
+    local minimum = integer(settings.minimum, 1)
+    local maximum = math.max(minimum, integer(settings.maximum, 1000000))
+    return minimum, maximum, math.max(minimum, math.min(maximum, integer(settings.default, 1000)))
+end
+
+function Policy.moneyAmount(value)
+    local amount = tonumber(value)
+    local minimum, maximum = Policy.moneyLimits()
+    if amount and amount == amount and amount % 1 == 0 and amount >= minimum and amount <= maximum then return amount end
+    return nil
+end
 
 local catalogs = {
     pecas_carro = {
@@ -72,6 +91,10 @@ local catalogs = {
 
 -- Return fresh tables so UI/config edits cannot mutate the server allowlist.
 function Policy.catalog(key)
+    if key == 'dinheiro' then
+        local minimum, maximum, default = Policy.moneyLimits()
+        return { label = 'Premiação em dinheiro', enabled = true, kind = 'money', rewards = {}, minimum = minimum, maximum = maximum, default = default }
+    end
     local source = catalogs[key]
     if not source then return nil end
     local result = { label = source.label, vehicleType = source.vehicleType, enabled = true, rewards = {} }
@@ -85,6 +108,7 @@ function Policy.tables()
     return {
         pecas_carro = Policy.catalog('pecas_carro'),
         pecas_moto = Policy.catalog('pecas_moto'),
+        dinheiro = Policy.catalog('dinheiro'),
         pecas_caminhao = { label = 'Caminhao — bloqueado', enabled = false, rewards = {} },
     }
 end
@@ -99,6 +123,7 @@ function Policy.isAllowedItem(key, item)
 end
 
 function Policy.validateCatalog(sharedItems, key)
+    if key == 'dinheiro' then return true end
     if key ~= nil and not catalogs[key] then return false, 'invalid_reward_table' end
     if type(sharedItems) ~= 'table' then return false, 'catalog_unavailable' end
     for tableKey, catalog in pairs(catalogs) do
@@ -126,5 +151,5 @@ function Policy.itemInfo(key)
 end
 
 function Policy.minimumSeconds(startedAt, finishedAt)
-    return math.max(1, math.ceil(math.max(0, (tonumber(finishedAt) or 0) - (tonumber(startedAt) or 0)) / 2))
+    return math.max(1, math.ceil(math.max(0, (tonumber(finishedAt) or 0) - (tonumber(startedAt) or 0)) * Policy.MINIMUM_ATTENDANCE_PERCENT / 100))
 end

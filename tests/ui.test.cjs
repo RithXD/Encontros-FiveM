@@ -65,6 +65,7 @@ function harness() {
 const tables = {
   pecas_carro: { label: 'Peças de carro', enabled: true },
   pecas_moto: { label: 'Peças de moto', enabled: true },
+  dinheiro: { label: 'Premiação em dinheiro', enabled: true, minimum: 10, maximum: 5000, default: 100 },
   pecas_caminhao: { label: 'Peças de caminhão', enabled: false },
   encontro: { label: 'Premiação antiga' },
 };
@@ -73,12 +74,138 @@ const active = {
   reward_enabled: 1, start_time: 1800000000, duration: 60, radius: 80,
 };
 
-test('form exposes only two fixed categories and a disabled truck option', () => {
+const savedLocations = [{
+  key: 'pier', label: 'Píer', coords: { x: 10, y: 20, z: 30 },
+  npc: { x: 11, y: 22, z: 30, w: 90 }, radius: 80, heightTolerance: 15,
+}];
+
+test('random locations tab lists saved entries safely and edits vectors, key and limits', () => {
+  const h = harness();
+  h.message({ action: 'showAdmin', locations: savedLocations, revision: 'r1' });
+  h.context.openAdminTab('locations');
+  assert.equal(h.nodes.get('locations-tab').hidden, false);
+  assert.equal(h.nodes.get('events-tab').hidden, true);
+  assert.equal(h.nodes.get('create-tab').hidden, true);
+  assert.match(h.nodes.get('locations-list').innerHTML, /Píer/);
+  assert.equal(h.nodes.get('location-count').textContent, '(1)');
+  h.context.editRandomLocation(0);
+  assert.equal(h.nodes.get('location-key').value, 'pier');
+  assert.equal(h.nodes.get('location-center').value, 'vector3(10.00, 20.00, 30.00)');
+  assert.equal(h.nodes.get('location-npc').value, 'vector4(11.00, 22.00, 30.00, 90.00)');
+  assert.equal(Number(h.nodes.get('location-radius').value), 80);
+  h.message({ action: 'locationsUpdated', locations: [{ ...savedLocations[0], label: '<img src=x onerror=bad()>', key: "x');bad()//" }], revision: 'r2' });
+  const html = h.nodes.get('locations-list').innerHTML;
+  assert.doesNotMatch(html, /<img|onclick="[^"]*bad/);
+  assert.match(html, /&lt;img/);
+});
+
+test('saving a random location validates vectors, sends only structured data and keeps the tab open', async () => {
+  const h = harness();
+  h.message({ action: 'showAdmin', locations: [], revision: 'r1' });
+  h.context.openAdminTab('locations');
+  h.nodes.get('location-key').value = 'pier';
+  h.nodes.get('location-label').value = 'Píer';
+  h.nodes.get('location-center').value = 'vector3(10, 20, 30)';
+  h.nodes.get('location-npc').value = 'vector4(11, 22, 30, 90)';
+  h.nodes.get('location-radius').value = '80';
+  h.nodes.get('location-height').value = '15';
+  const submit = () => h.context.submitLocationForm({ preventDefault() {} });
+  h.nodes.get('location-npc').value = 'vector4(1, 2, 3)';
+  await submit(); assert.equal(h.calls.length, 0);
+  h.nodes.get('location-npc').value = 'vector4(11, 22, 30, 90)';
+  h.nodes.get('location-radius').value = '1001';
+  await submit(); assert.equal(h.calls.length, 0);
+  h.nodes.get('location-radius').value = '80';
+  h.replies.push({ ok: true, locations: savedLocations, revision: 'r2' });
+  await submit();
+  assert.deepEqual(h.calls[0], { name: 'saveLocation', body: { original_key: null, revision: 'r1', location: savedLocations[0] } });
+  assert.equal(h.nodes.get('location-key').value, '');
+  assert.equal(h.nodes.get('locations-tab').hidden, false);
+  assert.match(h.nodes.get('locations-list').innerHTML, /Píer/);
+});
+
+test('updates from another admin keep the editing revision and failed saves preserve the draft', async () => {
+  const h = harness();
+  h.message({ action: 'showAdmin', locations: savedLocations, revision: 'r1' });
+  h.context.editRandomLocation(0);
+  h.nodes.get('location-label').value = 'Meu rascunho';
+  const changed = [{ ...savedLocations[0], label: 'Outro admin' }];
+  h.message({ action: 'locationsUpdated', locations: changed, revision: 'r2' });
+  h.replies.push({ ok: false, reason: 'A lista mudou', locations: changed, revision: 'r2' });
+  await h.context.submitLocationForm({ preventDefault() {} });
+  assert.equal(h.calls[0].body.revision, 'r1');
+  assert.equal(h.calls[0].body.original_key, 'pier');
+  assert.equal(h.nodes.get('location-label').value, 'Meu rascunho');
+  assert.equal(h.nodes.get('location-label').disabled, false);
+  assert.equal(h.nodes.get('nui-toast-message').textContent, 'A lista mudou');
+  h.context.editRandomLocation(0);
+  assert.equal(h.nodes.get('location-label').value, 'Outro admin');
+});
+
+test('removing a location requires its confirmation and sends the captured key/revision', async () => {
+  const h = harness();
+  h.message({ action: 'showAdmin', locations: savedLocations, revision: 'r1' });
+  h.context.deleteRandomLocation(0);
+  assert.equal(h.calls.length, 0);
+  assert.match(h.nodes.get('confirm-message').textContent, /eventos já criados mantêm suas posições/);
+  h.message({ action: 'locationsUpdated', locations: savedLocations, revision: 'r2' });
+  h.replies.push({ ok: true, locations: [], revision: 'r3' });
+  await h.context.acceptConfirmation();
+  await new Promise(setImmediate);
+  assert.deepEqual(h.calls[0], { name: 'deleteLocation', body: { original_key: 'pier', revision: 'r1' } });
+  assert.match(h.nodes.get('locations-list').innerHTML, /Nenhum local cadastrado/);
+});
+
+test('position capture includes NPC heading, and closed/reopened panels ignore old responses', async () => {
+  const h = harness();
+  h.message({ action: 'showAdmin', locations: [], revision: 'r1' });
+  h.replies.push({ x: 1, y: 2, z: 3, w: 180 });
+  await h.context.useLocationPosition(true);
+  assert.equal(h.nodes.get('location-npc').value, 'vector4(1.00, 2.00, 3.00, 180.00)');
+  let resolve;
+  h.replies.push(new Promise((done) => { resolve = done; }));
+  const oldRequest = h.context.refreshRandomLocations();
+  h.message({ action: 'hidePanel' });
+  h.message({ action: 'showAdmin', locations: savedLocations, revision: 'r2' });
+  resolve({ ok: true, locations: [], revision: 'r1' });
+  await oldRequest;
+  assert.match(h.nodes.get('locations-list').innerHTML, /Píer/);
+  assert.equal(h.nodes.get('save-location').disabled, false);
+});
+
+test('location saves block duplicate submission and position requests cannot overwrite another draft', async () => {
+  const h = harness();
+  h.message({ action: 'showAdmin', locations: savedLocations, revision: 'r1' });
+  h.context.editRandomLocation(0);
+  let resolvePosition;
+  h.replies.push(new Promise((resolve) => { resolvePosition = resolve; }));
+  const position = h.context.useLocationPosition(false);
+  h.context.resetLocationForm();
+  resolvePosition({ x: 999, y: 999, z: 999, w: 0 });
+  await position;
+  assert.equal(h.nodes.get('location-center').value, '');
+  h.context.editRandomLocation(0);
+  let resolveSave;
+  h.replies.push(new Promise((resolve) => { resolveSave = resolve; }));
+  const pending = h.context.submitLocationForm({ preventDefault() {} });
+  assert.equal(h.nodes.get('location-label').disabled, true);
+  await h.context.submitLocationForm({ preventDefault() {} });
+  assert.equal(h.calls.filter((entry) => entry.name === 'saveLocation').length, 1);
+  resolveSave({ ok: false, reason: 'Falha ao gravar' });
+  await pending;
+  assert.equal(h.nodes.get('location-label').value, 'Píer');
+  assert.equal(h.nodes.get('location-label').disabled, false);
+});
+
+test('form exposes performance, money, Resenha and a disabled truck option', () => {
   const h = harness();
   h.message({ action: 'showAdmin', rewardTables: tables });
   const options = h.nodes.get('reward-table').innerHTML;
   assert.match(options, /value="pecas_carro"/);
   assert.match(options, /value="pecas_moto"/);
+  assert.match(options, /value="dinheiro"/);
+  assert.match(html, /value="resenha">Resenha/);
+  assert.match(html, /pelo menos 60%.*presença no encerramento/);
   assert.match(options, /value="pecas_caminhao" disabled/);
   assert.doesNotMatch(options, /Premiação antiga|value="encontro"/);
   assert.doesNotMatch(html, /id="(?:reward-mode|npc-coords|custom-rewards-panel)"/);
@@ -103,6 +230,58 @@ test('reward payload reserves a confirmed NPC and exposes no item, quantity, kit
   for (const key of ['npc_model', 'reward_item', 'reward_custom', 'amount', 'reward_amount']) {
     assert.equal(key in data, false, key);
   }
+});
+
+test('money form uses configured bounds, rejects invalid values and sends the amount per player', async () => {
+  const h = harness();
+  h.message({ action: 'showAdmin', rewardTables: tables });
+  h.nodes.get('event-type').value = 'resenha';
+  h.nodes.get('coords').value = '1, 2, 3';
+  h.nodes.get('reward-enabled').checked = true;
+  h.nodes.get('reward-table').value = 'dinheiro';
+  h.context.updateRewardVisibility();
+  assert.equal(h.nodes.get('reward-money-wrapper').hidden, false);
+  assert.equal(h.nodes.get('reward-money').required, true);
+  assert.equal(Number(h.nodes.get('reward-money').min), 10);
+  assert.equal(Number(h.nodes.get('reward-money').max), 5000);
+  assert.equal(Number(h.nodes.get('reward-money').value), 100);
+  h.message({ action: 'showNpcPlacement', coords: { x: 1, y: 2, z: 3, w: 90 } });
+  h.message({ action: 'finishNpcPlacement', confirmed: true, coords: { x: 1, y: 2, z: 3, w: 90 } });
+  for (const invalid of ['0', '9', '5001', '1.5', 'broken']) {
+    h.nodes.get('reward-money').value = invalid;
+    await h.context.submitEventForm({ preventDefault() {} });
+    assert.equal(h.calls.length, 0);
+  }
+  h.nodes.get('reward-money').value = '250';
+  await h.context.submitEventForm({ preventDefault() {} });
+  assert.equal(h.calls[0].body.reward_money, 250);
+  assert.equal(h.calls[0].body.event_type, 'resenha');
+  assert.equal(h.calls[0].body.reward_table, 'dinheiro');
+  h.nodes.get('reward-table').value = 'pecas_carro';
+  h.context.updateRewardVisibility();
+  assert.equal(h.nodes.get('reward-money-wrapper').hidden, true);
+  assert.equal(h.nodes.get('reward-money').disabled, true);
+  assert.equal('reward_money' in h.context.getEventFormData(), false);
+});
+
+test('recreating a Resenha preserves its money amount and cash claims show value and payment status', () => {
+  const h = harness();
+  h.message({ action: 'showAdmin', rewardTables: tables, events: [{
+    ...active, status: 'cancelled', event_type: 'resenha', reward_table: 'dinheiro', reward_money: 250,
+  }] });
+  h.context.recreateEvent(12);
+  assert.equal(h.nodes.get('event-type').value, 'resenha');
+  assert.equal(h.nodes.get('reward-table').value, 'dinheiro');
+  assert.equal(Number(h.nodes.get('reward-money').value), 250);
+  assert.equal(h.nodes.get('reward-money-wrapper').hidden, false);
+  const claim = { id: 7, kind: 'money', label: 'Premiação em dinheiro', amount: 250, status: 'pending', expires_at: h.now() + 100 };
+  const card = h.context.buildClaimCard(claim);
+  assert.match(card, /Valor: <strong>\$250/);
+  assert.match(card, /Receber dinheiro/);
+  assert.doesNotMatch(card, /Quantidade:|unidades|Reivindicar peça/);
+  const paying = h.context.buildClaimCard({ ...claim, status: 'paying' });
+  assert.match(paying, /Pagamento em verificação/);
+  assert.match(paying, /disabled/);
 });
 
 test('vector3 form accepts a pasted vector without including the type digit in coordinates', () => {
@@ -187,7 +366,7 @@ test('pickup instructions distinguish the ten-minute local window from the fixed
   assert.deepEqual(h.calls.at(-1), { name: 'markOnMap', body: { x: point.x, y: point.y, z: point.z } });
   h.advance(600);
   h.message({ action: 'showClaims', pickup_kind: 'fixed', fixed_npc_coords: point, claims: [prize], server_time: h.now() });
-  assert.match(h.nodes.get('claims-pickup-help').textContent, /neste NPC fixo em até 24 horas após o sorteio/);
+  assert.match(h.nodes.get('claims-pickup-help').textContent, /neste NPC fixo em até 24 horas após o encerramento/);
   assert.equal(h.nodes.get('claims-fixed-map').hidden, true);
   assert.match(h.nodes.get('claims-list').innerHTML, new RegExp(`data-expires="${expiry}"`));
   h.message({ action: 'showClaims', pickup_kind: 'event', fixed_npc_coords: { x: '1829.39', y: 0, z: 0 }, claims: [] });
@@ -224,7 +403,7 @@ test('one click in flight per claim and only claim ID is sent; response refreshe
   resolve({ ok: true, message: 'Entregue' });
   await first;
   assert.equal(h.calls[1].name, 'refreshClaims');
-  assert.match(h.nodes.get('claims-list').innerHTML, /Peça recebida/);
+  assert.match(h.nodes.get('claims-list').innerHTML, /Prêmio recebido/);
   await h.context.claimReward(7);
   assert.equal(h.calls.length, 2);
 });

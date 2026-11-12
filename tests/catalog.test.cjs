@@ -71,7 +71,7 @@ QBCore.Shared.Items.jv_piston_forjado = nil
 assert(not P.validateCatalog(QBCore.Shared.Items, 'pecas_carro'))
 assert(P.validateCatalog(QBCore.Shared.Items, 'pecas_moto'))
 assert(not P.validateCatalog(QBCore.Shared.Items))
-assert(P.minimumSeconds(100,1300) == 600)
+assert(P.minimumSeconds(100,1300) == 720)
 assert(P.minimumSeconds(100,101) == 1)
 assert(P.minimumSeconds(100,103) == 2)
 assert(P.minimumSeconds(100,100) == 1)

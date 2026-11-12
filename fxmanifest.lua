@@ -29,6 +29,7 @@ server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/attendance.lua',
     'server/schema.lua',
+    'server/locations.lua',
     'server/main.lua',
 }
 

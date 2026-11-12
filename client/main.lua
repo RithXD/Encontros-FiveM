@@ -530,6 +530,23 @@ RegisterNUICallback('getPlayerCoords', function(_, cb)
     cb({ x = c.x, y = c.y, z = c.z, w = GetEntityHeading(ped) })
 end)
 
+for _, action in ipairs({ 'getLocations', 'saveLocation', 'deleteLocation' }) do
+    local callbackName = action
+    RegisterNUICallback(callbackName, function(data, cb)
+        if not panelOpen or panelView ~= 'admin' then cb({ ok = false, reason = 'Abra o painel administrativo.' }) return end
+        QBCore.Functions.TriggerCallback('encontros:server:' .. callbackName, function(result)
+            cb(result or { ok = false, reason = 'Nao foi possivel consultar os locais.' })
+        end, data)
+    end)
+end
+
+RegisterNetEvent('encontros:client:locationsUpdated', function(locations, revision)
+    Config.Locations = locations or {}
+    if panelOpen and panelView == 'admin' then
+        SendNUIMessage({ action = 'locationsUpdated', locations = Config.Locations, revision = revision })
+    end
+end)
+
 RegisterNUICallback('createEvent', function(data, cb)
     QBCore.Functions.TriggerCallback('encontros:server:create', function(ok, reason)
         cb({ ok = ok, reason = reason })
@@ -576,12 +593,14 @@ RegisterNetEvent('encontros:client:openAdmin', function()
     if Placement or PlacementPending then return end
     panelRequest = panelRequest + 1
     local request = panelRequest
-    QBCore.Functions.TriggerCallback('encontros:server:getAll', function(events)
+    QBCore.Functions.TriggerCallback('encontros:server:getAll', function(events, locations, revision)
         if request ~= panelRequest then return end
         panelOpen = true
         panelView = 'admin'
         SetNuiFocus(true, true)
-        SendNUIMessage({ action = 'showAdmin', events = events, defaultRadius = Config.EventAreaRadius, defaultHeight = Config.EventHeightTolerance, blipIcons = Config.EventBlipIcons, blipConfigs = Config.Blips, rewardTables = Config.RewardTables })
+        Config.Locations = locations or {}
+        SendNUIMessage({ action = 'showAdmin', events = events, locations = Config.Locations, revision = revision,
+            defaultRadius = Config.EventAreaRadius, defaultHeight = Config.EventHeightTolerance, blipIcons = Config.EventBlipIcons, blipConfigs = Config.Blips, rewardTables = Config.RewardTables })
     end)
 end)
 

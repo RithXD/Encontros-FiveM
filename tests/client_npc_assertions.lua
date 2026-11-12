@@ -340,4 +340,25 @@ for _, termination in ipairs({ 'logout', 'stop' }) do
     check(#CreatedEntities == 0 and #TestBlips == 0, 'late fixed-NPC response is ignored after ' .. termination)
 end
 
+ResetClient()
+local savedLocations={{key='pier',label='Pier',coords={x=1,y=2,z=3},npc={x=2,y=3,z=4,w=90},radius=80,heightTolerance=15}}
+AdminLocations=savedLocations
+OpenAdmin()
+check(Messages[#Messages].action=='showAdmin' and Messages[#Messages].locations==savedLocations, 'admin receives authoritative server locations')
+check(Messages[#Messages].revision=='test-r1', 'admin receives a concurrency revision')
+for _, action in ipairs({'getLocations','saveLocation','deleteLocation'}) do
+    local payload={original_key='pier',revision='test-r1',location=savedLocations[1]}
+    local reply=Nui(action,payload)
+    check(reply.ok and reply.locations==savedLocations, 'location response forwarded to NUI')
+    check(LastCallback('encontros:server:'..action).args[1]==payload, 'location payload forwarded without changing data')
+end
+Handlers['encontros:client:locationsUpdated']({},'test-r2')
+check(#Config.Locations==0 and Messages[#Messages].action=='locationsUpdated' and Messages[#Messages].revision=='test-r2', 'live updates synchronize client config and open panel')
+Nui('closePanel')
+local count=#CallbackCalls
+check(Nui('saveLocation',{}).ok==false and #CallbackCalls==count, 'closed client panel cannot submit location edits')
+local messages=#Messages
+Handlers['encontros:client:locationsUpdated'](savedLocations,'test-r3')
+check(Config.Locations==savedLocations and #Messages==messages, 'closed panels keep config synchronized without opening UI')
+
 print(('Client encounter NPCs and placement: %d assertions passed'):format(assertions))

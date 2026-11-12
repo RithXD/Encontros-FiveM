@@ -9,6 +9,7 @@ function ResetClient()
     PressedControls, HeldControls, DisabledGroups, EnabledControls = {}, {}, {}, {}
     ModelAvailable, AllowedPlacement, InVehicle, Dead, CameraHeading, FrameSeconds = true, true, false, false, 0, 0.02
     GroundHeight, GroundCalls, FailCoordinates, LastNuiResult = 29, 0, false, nil
+    AdminLocations, LocationsRevision, LocationsReply = {}, 'test-r1', nil
     originalReset()
 end
 Config.EventRewardNpc = { model = 's_m_m_autoshop_02', distance = 2.0, afterFinishSeconds = 600 }
@@ -22,6 +23,9 @@ function Core.Functions.TriggerCallback(name, callback, ...)
         PendingCallbacks[#PendingCallbacks + 1] = { name = name, callback = callback }; return
     end
     if name == 'encontros:server:getActive' then callback(HydratedEvents)
+    elseif name == 'encontros:server:getAll' then callback({}, AdminLocations, LocationsRevision)
+    elseif name == 'encontros:server:getLocations' or name == 'encontros:server:saveLocation' or name == 'encontros:server:deleteLocation' then
+        callback(LocationsReply or { ok = true, locations = AdminLocations, revision = LocationsRevision })
     elseif name == 'encontros:server:getRewardClaimNpcs' then callback(NpcEntries, ServerNow())
     elseif name == 'encontros:server:canPlaceNpc' then callback(AllowedPlacement)
     elseif name == 'encontros:server:getRewardClaims' then

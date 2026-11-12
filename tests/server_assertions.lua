@@ -1,18 +1,18 @@
 -- Threshold and final-presence contracts, including exact closing boundaries.
-for _, earned in ipairs({29,30,31}) do
+for _, earned in ipairs({35,36,37}) do
     Reset(); Boot()
     local ok, id = NewEvent()
     Check(ok, 'event created')
-    for t=1005,1025,5 do Sample(t) end
+    for t=1005,1030,5 do Sample(t) end
     Sample(1000 + earned)
     Players[1].coords.x = 100
-    Sample(1035)
+    Sample(1045)
     Players[1].coords.x = 0
     TestNow = 1060
     Check(Invoke('finish',1,id), 'finish accepts active event')
-    Eq(Count(DB.claims), earned >= 30 and 1 or 0, '50 percent threshold')
+    Eq(Count(DB.claims), earned >= 36 and 1 or 0, '60 percent threshold')
     Eq(DB.events[id].finished_at,1060,'actual closing persisted')
-    if earned >=30 then
+    if earned >=36 then
         Eq(DB.claims[1].reward_amount,1,'single unit')
         Eq(DB.claims[1].expires_at,1060+86400,'claim expiry anchored to finish')
     end
@@ -60,11 +60,11 @@ Sample(1050); Eq(DB.attendance[id].test_character_a,15,'unobserved scheduling ga
 
 -- Early finish uses elapsed real duration, not originally planned length.
 Reset(); Boot(); ok,id=NewEvent({duration=60})
-for t=1005,1600,5 do Sample(t) end
-Players[1].coords.x=100; Sample(1605)
+for t=1005,1720,5 do Sample(t) end
+Players[1].coords.x=100; Sample(1725)
 Players[1].coords.x=0; TestNow=2200
-Check(Invoke('finish',1,id)); Eq(Count(DB.claims),1,'20 minute closure requires 10 accumulated minutes')
-Eq(DB.attendance[id].test_character_a,600,'one hour scheduled time does not alter actual threshold')
+Check(Invoke('finish',1,id)); Eq(Count(DB.claims),1,'20 minute closure requires 12 accumulated minutes')
+Eq(DB.attendance[id].test_character_a,720,'one hour scheduled time does not alter actual threshold')
 
 -- Closure is a single SQL transaction and timers/admin cannot duplicate draws.
 Reset(); Boot(); ok,id=NewEvent({recurring=true})
@@ -419,9 +419,11 @@ TestNow=1630; Eq(#Invoke('getRewardClaimNpcs',1),1); Eq(#Invoke('getRewardClaims
 -- fixed NPC's own bucket once its local ten-minute window ends.
 Reset(); Boot(); Players[1].bucket=2; ok,id=NewEvent()
 Players[1].bucket=0; ok,secondId=NewEvent({duration=2})
-for t=1005,1055,5 do
+for t=1005,1040,5 do
     Players[1].bucket=2; Sample(t)
 end
+for t=1045,1055,5 do Players[1].bucket=0; Sample(t) end
+Players[1].bucket=2
 TestNow=1060; Check(Invoke('finish',1,id))
 Players[1].bucket=0; Sample(1060)
 for t=1065,1115,5 do Sample(t) end
@@ -476,5 +478,101 @@ TestNow=1659; QueryHook=function() TestNow=1660; QueryHook=nil end
 npcList,npcServerTime=Invoke('getRewardClaimNpcs',1); Eq(#npcList,1); Eq(npcServerTime,1659)
 TestNow=1659; QueryHook=function() TestNow=1660; QueryHook=nil end
 Eq(#Invoke('getRewardClaims',1,id).claims,0,'SQL latency cannot reopen local pickup')
+
+-- Money obeys the same 60% boundary and final-presence rule as performance.
+for _, earned in ipairs({35,36,37}) do
+    Reset(); Boot(); ok,id=NewEvent({event_type='resenha',reward_table='dinheiro',reward_money=1250})
+    Check(ok); Eq(DB.events[id].event_type,'resenha')
+    for t=1005,1030,5 do Sample(t) end
+    Sample(1000+earned); Players[1].coords.x=100; Sample(1045)
+    Players[1].coords.x=0; TestNow=1060; Check(Invoke('finish',1,id))
+    Eq(Count(DB.claims),earned>=36 and 1 or 0,'money requires 60 percent')
+    if earned>=36 then
+        Eq(DB.claims[1].reward_amount,1250); Eq(DB.claims[1].reward_item,'cash')
+        Eq(DB.claims[1].expires_at,87460)
+        local cashView=Invoke('getRewardClaims',1,id).claims[1]
+        Eq(cashView.kind,'money'); Eq(cashView.amount,1250); Eq(cashView.image,'')
+        Eq(Invoke('claimReward',1,1).ok,false,'money still requires pickup at NPC')
+        Players[1].coords.x=10
+        Check(Invoke('claimReward',1,1).ok); Eq(Players[1].cash,1250); Eq(MoneySaves,1)
+        Eq(DB.claims[1].claimed,1); Eq(BridgeCalls,0,'money bypasses item bridge')
+        Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,1,'cannot credit twice')
+    end
+end
+
+Reset(); Boot(); ok,id=NewEvent({reward_table='dinheiro',reward_money=500})
+for t=1005,1055,5 do Sample(t) end
+Players[1].coords.x=100; TestNow=1060; Check(Invoke('finish',1,id))
+Eq(Count(DB.claims),0,'money requires presence at closure even with enough time')
+
+Reset(); Boot()
+for _, invalid in ipairs({0,-1,1.5,1000001,'invalid',math.huge}) do
+    Eq(NewEvent({reward_table='dinheiro',reward_money=invalid}),false,'invalid cash value rejected by server')
+end
+Eq(NewEvent({reward_table='dinheiro'}),false,'missing money value rejected')
+Eq(NewEvent({reward_money=500}),false,'item quantities cannot be replaced with cash')
+Players[1].admin=false
+Eq(NewEvent({reward_table='dinheiro',reward_money=500}),false,'only admins choose cash')
+Players[1].admin=true
+Config.MoneyReward={minimum=50,maximum=200,default=100}
+Eq(NewEvent({reward_table='dinheiro',reward_money=49}),false)
+Eq(NewEvent({reward_table='dinheiro',reward_money=201}),false)
+Check(NewEvent({reward_table='dinheiro',reward_money=50}))
+Check(NewEvent({reward_table='dinheiro',reward_money=200}))
+
+local function MoneyClaim(overrides)
+    Reset(); Boot()
+    local data={event_type='resenha',reward_table='dinheiro',reward_money=725,recurring=true}
+    for key,value in pairs(overrides or {}) do data[key]=value end
+    local created,eventId=NewEvent(data); Check(created)
+    for t=1005,1055,5 do Sample(t) end
+    TestNow=1060; Check(Invoke('finish',1,eventId))
+    Players[1].coords.x=10
+    return eventId
+end
+
+-- Both recurrence SQL paths retain amount, category and event type.
+for _, random in ipairs({false,true}) do
+    Reset(); Boot()
+    ok,id=NewEvent({event_type='resenha',reward_table='dinheiro',reward_money=725,recurring=true,random_location=random})
+    Check(ok)
+    Players[1].coords.x=DB.events[id].coords_x
+    Players[1].coords.y=DB.events[id].coords_y
+    Players[1].coords.z=DB.events[id].coords_z
+    for t=1005,1055,5 do Sample(t) end
+    TestNow=1060; Check(Invoke('finish',1,id))
+    Eq(DB.events[2].reward_money,725); Eq(DB.events[2].reward_table,'dinheiro'); Eq(DB.events[2].event_type,'resenha')
+end
+
+MoneyClaim(); MoneyFailure=true
+Eq(Invoke('claimReward',1,1).ok,false); Eq(DB.claims[1].status,'pending'); Eq(MoneyPayments,0)
+MoneyFailure=false; Check(Invoke('claimReward',1,1).ok); Eq(Players[1].cash,725)
+
+MoneyClaim(); MoneyReserveHook=function() Players[1].citizenid='changed_character' end
+Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,0); Eq(DB.claims[1].status,'pending')
+
+MoneyClaim(); MoneyReserveHook=function() Players[1].coords.x=100 end
+Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,0); Eq(DB.claims[1].status,'pending')
+
+MoneyClaim(); MoneyReserveHook=function() TestNow=DB.claims[1].expires_at end
+Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,0,'expiry rechecked after SQL wait')
+
+MoneyClaim(); MoneyReserveHook=function() error('uncertain reservation') end
+Eq(Invoke('claimReward',1,1).ok,false); Eq(DB.claims[1].status,'paying'); Eq(MoneyPayments,0)
+MoneyReserveHook=nil; Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,0,'uncertain reservation never auto-retries')
+
+MoneyClaim(); MoneyCompleteFailure=true
+Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,1); Eq(DB.claims[1].status,'paying')
+MoneyCompleteFailure=false; Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,1,'lost completion cannot credit twice')
+Reset(true); TestNow=1061; Boot(); Players[1].coords.x=10
+Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,0,'restart keeps uncertain payment blocked for review')
+
+MoneyClaim(); TestNow=1660; Players[1].coords.x=10
+Eq(Invoke('claimReward',1,1).ok,false)
+Players[1].coords.x=200; Check(Invoke('claimReward',1,1).ok,'cash also hands off to permanent NPC')
+Eq(Players[1].cash,725)
+
+MoneyClaim(); DB.claims[1].reward_amount=1.5
+Eq(Invoke('claimReward',1,1).ok,false); Eq(MoneyPayments,0,'corrupt stored amount cannot credit')
 
 print(('Server lifecycle tests passed: %d assertions.'):format(Assertions))

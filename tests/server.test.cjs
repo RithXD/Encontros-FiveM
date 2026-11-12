@@ -11,7 +11,7 @@ function run(source, name) {
 }
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 run(read('tests/server_stubs.lua'), '@server_stubs');
-for (const file of ['shared/reward_policy.lua', 'server/attendance.lua', 'server/schema.lua']) run(read(file), '@' + file);
+for (const file of ['shared/reward_policy.lua', 'server/attendance.lua', 'server/schema.lua', 'server/locations.lua']) run(read(file), '@' + file);
 run('function BootMain()\n' + read('server/main.lua') + '\nend', '@server/main.lua');
 run(read('tests/server_assertions.lua'), '@server_assertions');
 lua.lua_close(L);

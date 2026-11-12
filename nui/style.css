@@ -235,7 +235,17 @@ h1 {
   cursor: pointer;
 }
 
-.tabs { display: flex; gap: 8px; margin: 22px 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
+
+.locations-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.locations-toolbar > div { flex: 1; min-width: 220px; }
+.locations-toolbar h2 { margin: 0 0 8px; font-size: 20px; }
+.locations-toolbar p { margin: 0; color: var(--muted); line-height: 1.5; }
+.locations-toolbar button { flex-shrink: 0; }
+.location-form { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+.locations-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.location-card .actions { flex-wrap: wrap; }
+.location-card p { overflow-wrap: anywhere; }
 
 .tab,
 .secondary {
